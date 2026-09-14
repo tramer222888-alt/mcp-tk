@@ -1,4 +1,4 @@
-name: Probe IPO
+name: Probe official TK portals
 
 on:
   push:
@@ -12,66 +12,97 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Reproduce official IPO searches over HTTP/2
+      - name: Inspect OTK ZU and reproduce IPO form
+        shell: bash
         run: |
           set -u
-          BASE='https://ipo.trybunal.gov.pl/ipo'
-          UA='mcp-tk-probe/0.3 (public compatibility test)'
-          open_session() {
-            local p="$1"
-            curl -fsS --http2 --compressed --max-time 60 -c "$p.cookies" -b "$p.cookies"               -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'               -o "$p.landing.html" "$BASE/"
-            curl -fsS --http2 --compressed --max-time 60 -c "$p.cookies" -b "$p.cookies"               -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'               -o "$p.search.html" "$BASE/Szukaj?cid=1"
-            python3 - "$p" <<'PY'
-          import html,re,sys
+          UA='Mozilla/5.0 (compatible; mcp-tk/1.0; public compatibility test)'
+          for url in             'https://otkzu.trybunal.gov.pl/'             'https://otkzu.trybunal.gov.pl/Wyszukiwanie'; do
+            name="$(printf '%s' "$url" | sed 's#https://##;s#[/?=&]#_#g')"
+            curl -sS --http2 --compressed --max-time 45 -L               -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'               -w '\nSTATUS %{http_code} TIME %{time_total}\n'               -o "$name.html" "$url" || true
+            echo "OTKZU $url"
+            wc -c "$name.html" 2>/dev/null || true
+            python3 - "$name.html" <<'PY'
+          import re,sys
           from pathlib import Path
-          p=sys.argv[1]
-          text=Path(p+".search.html").read_text(encoding="utf-8",errors="replace")
-          m=re.search(r'name="javax\.faces\.ViewState"[^>]+value="([^"]+)"',text,re.I)
-          if not m: raise SystemExit("no ViewState")
-          Path(p+".state").write_text(html.unescape(m.group(1)),encoding="utf-8")
-          for ident in ("wyszukiwanie:tabView:dataOd_input","wyszukiwanie:tabView:dataDo_input"):
-              pos=text.find('id="'+ident+'"')
-              print("CALENDAR",ident,text[max(0,pos-300):pos+1500].replace("\n"," ") if pos>=0 else "MISSING")
+          p=Path(sys.argv[1])
+          if not p.exists(): raise SystemExit()
+          s=p.read_text("utf-8",errors="replace")
+          print("title", re.findall(r"<title[^>]*>(.*?)</title>",s,re.I|re.S)[:2])
+          print("forms", re.findall(r"<form[^>]+(?:action|id)=[\"'][^\"']+[\"'][^>]*>",s,re.I)[:10])
+          print("inputs", sorted(set(re.findall(r"(?:name|id)=[\"']([^\"']+)[\"']",s,re.I)))[:100])
+          print("scripts", re.findall(r"<script[^>]+src=[\"']([^\"']+)",s,re.I)[:40])
+          print("links", re.findall(r"href=[\"']([^\"']+)",s,re.I)[:60])
           PY
+          done
+
+          BASE='https://ipo.trybunal.gov.pl/ipo'
+          curl -fsS --http2 --compressed --max-time 45 -c ipo.cookies -b ipo.cookies             -H "User-Agent: $UA" -o ipo.landing.html "$BASE/"
+          curl -fsS --http2 --compressed --max-time 45 -c ipo.cookies -b ipo.cookies             -H "User-Agent: $UA" -o ipo.search.html "$BASE/Szukaj?cid=1"
+
+          python3 - <<'PY'
+          import html,re,urllib.parse
+          from pathlib import Path
+          s=Path("ipo.search.html").read_text("utf-8",errors="replace")
+          form=re.search(r'<form[^>]+id="wyszukiwanie"[^>]*>(.*?)</form>',s,re.I|re.S)
+          if not form: raise SystemExit("form missing")
+          f=form.group(1)
+          pairs=[]
+          for tag in re.findall(r'<input\b[^>]*>',f,re.I):
+              nm=re.search(r'\bname="([^"]+)"',tag,re.I)
+              if not nm: continue
+              typ=(re.search(r'\btype="([^"]+)"',tag,re.I) or [None,"text"])[1].lower()
+              if typ in ("submit","button","image","file","reset"): continue
+              if typ in ("checkbox","radio") and not re.search(r'\bchecked(?:=|\s|>)',tag,re.I): continue
+              val=re.search(r'\bvalue="([^"]*)"',tag,re.I)
+              pairs.append((html.unescape(nm.group(1)),html.unescape(val.group(1)) if val else "on" if typ in ("checkbox","radio") else ""))
+          for tag,inner in re.findall(r'(<select\b[^>]*>)(.*?)</select>',f,re.I|re.S):
+              nm=re.search(r'\bname="([^"]+)"',tag,re.I)
+              if not nm: continue
+              opts=re.findall(r'<option\b([^>]*)value="([^"]*)"[^>]*>',inner,re.I)
+              chosen=next((v for attrs,v in opts if re.search(r'\bselected',attrs,re.I)), opts[0][1] if opts else "")
+              pairs.append((html.unescape(nm.group(1)),html.unescape(chosen)))
+          source="wyszukiwanie:tabView:szukaj_button_tab2"
+          overrides={
+            "javax.faces.partial.ajax":"true",
+            "javax.faces.source":source,
+            "javax.faces.partial.execute":"wyszukiwanie",
+            "javax.faces.partial.render":"wyszukiwanie filtr",
+            source:source,
+            "wyszukiwanie":"wyszukiwanie",
+            "wyszukiwanie:tabView:sygnaturaComplete_input":"K 23/11",
+            "wyszukiwanie:tabView_activeIndex":"1",
           }
-          post_search() {
-            local p="$1" source="$2" active="$3" field="$4" value="$5"
-            local state
-            state="$(cat "$p.state")"
-            curl -sS --http2 --compressed --max-time 180 -c "$p.cookies" -b "$p.cookies"               -H "User-Agent: $UA" -H 'Accept: application/xml, text/xml, */*; q=0.01'               -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8'               -H 'Faces-Request: partial/ajax' -H 'X-Requested-With: XMLHttpRequest'               -H "Referer: $BASE/Szukaj?cid=1"               --data-urlencode 'javax.faces.partial.ajax=true'               --data-urlencode "javax.faces.source=$source"               --data-urlencode 'javax.faces.partial.execute=wyszukiwanie'               --data-urlencode 'javax.faces.partial.render=wyszukiwanie filtr'               --data-urlencode "$source=$source"               --data-urlencode 'wyszukiwanie=wyszukiwanie'               --data-urlencode "$field=$value"               --data-urlencode 'wyszukiwanie:tabView:gdzieSzukaj_1_input=wyrok'               --data-urlencode 'wyszukiwanie:tabView:odmianaSlow_1_input=on'               --data-urlencode "wyszukiwanie:tabView_activeIndex=$active"               --data-urlencode "javax.faces.ViewState=$state"               -w '%{http_code} %{time_total}\n' -o "$p.ajax.xml" "$BASE/Szukaj?cid=1"
-            echo "post-exit=$?"
-            curl -sS --http2 --compressed --max-time 60 -c "$p.cookies" -b "$p.cookies"               -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'               -w '%{http_code} %{time_total}\n' -o "$p.print.html" "$BASE/SzukajDrukuj?cid=1&page=0"
-          }
+          d={}
+          for k,v in pairs: d[k]=v
+          d.update(overrides)
+          Path("ipo.body").write_text(urllib.parse.urlencode(d),encoding="utf-8")
+          print("form-param-count",len(d))
+          print("form-param-names",sorted(d))
+          for marker in ("szukaj_button_tab1","szukaj_button_tab2","miejsce"):
+              p=s.find(marker)
+              print("AROUND",marker,s[max(0,p-250):p+900].replace("\n"," ") if p>=0 else "MISSING")
+          PY
 
-          open_session signature
-          post_search signature 'wyszukiwanie:tabView:szukaj_button_tab2' 1             'wyszukiwanie:tabView:sygnaturaComplete_input' 'K 23/11'
-
-          open_session query
-          post_search query 'wyszukiwanie:tabView:szukaj_button_tab1' 0             'wyszukiwanie:tabView:szukajFrazaIT_1_input' 'kontrasygnata'
-
+          curl -sS --http2 --compressed --max-time 240 -c ipo.cookies -b ipo.cookies             -H "User-Agent: $UA" -H 'Accept: application/xml, text/xml, */*; q=0.01'             -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8'             -H 'Faces-Request: partial/ajax' -H 'X-Requested-With: XMLHttpRequest'             -H "Referer: $BASE/Szukaj?cid=1"             --data-binary @ipo.body             -w '%{http_code} %{time_total}\n' -o ipo.ajax.xml "$BASE/Szukaj?cid=1" || true
+          curl -sS --http2 --compressed --max-time 60 -c ipo.cookies -b ipo.cookies             -H "User-Agent: $UA"             -w '%{http_code} %{time_total}\n' -o ipo.print.html "$BASE/SzukajDrukuj?cid=1&page=0" || true
           python3 - <<'PY'
           import html,re
           from pathlib import Path
-          for p in ("signature","query"):
-              for suffix in ("ajax.xml","print.html"):
-                  path=Path(p+"."+suffix)
-                  if not path.exists():
-                      print("MISSING",path)
-              if not Path(p+".print.html").exists(): continue
-              ajax=Path(p+".ajax.xml").read_text(encoding="utf-8",errors="replace") if Path(p+".ajax.xml").exists() else ""
-              page=Path(p+".print.html").read_text(encoding="utf-8",errors="replace")
-              rows=re.findall(r'<span class="sygnatura">([^<]+)</span>',page,re.I)
-              pager=re.search(r'Strona wyników:\s*(\d+)\s*z\s*(\d+)',page,re.I)
-              print("\nRESULT",p,"ajax-bytes",len(ajax),"page-bytes",len(page),
-                    "rows",len(rows),"pager",pager.groups() if pager else None)
-              print("signatures",[html.unescape(x).strip() for x in rows[:25]])
-              print("ajax-head",ajax[:1500].replace("\n"," "))
+          for p in ("ipo.ajax.xml","ipo.print.html"):
+              x=Path(p)
+              if not x.exists():
+                  print("MISSING",p); continue
+              s=x.read_text("utf-8",errors="replace")
+              print(p,"bytes",len(s),"head",s[:1200].replace("\n"," "))
+              print("signatures",[html.unescape(v).strip() for v in re.findall(r'<span class="sygnatura">([^<]+)',s,re.I)[:30]])
+              print("pager",re.findall(r'Strona wyników:\s*(\d+)\s*z\s*(\d+)',s,re.I))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ipo-search-probe
+          name: tk-probe
           path: |
-            *.ajax.xml
-            *.print.html
+            *.html
+            *.xml
           retention-days: 1
