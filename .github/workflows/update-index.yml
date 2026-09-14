@@ -10,6 +10,7 @@ on:
       - "src/core.ts"
       - "src/client.ts"
       - "scripts/build-index.mjs"
+      - ".github/workflows/update-index.yml"
 
 permissions:
   contents: write
@@ -33,7 +34,7 @@ jobs:
       - run: node scripts/build-index.mjs
       - name: Commit changed index
         run: |
-          if git diff --quiet -- data/ipo-index.json; then
+          if [ -z "$(git status --porcelain -- data/ipo-index.json)" ]; then
             echo "Indeks bez zmian."
             exit 0
           fi
