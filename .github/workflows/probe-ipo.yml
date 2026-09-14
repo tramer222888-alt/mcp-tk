@@ -1,0 +1,50 @@
+name: Probe IPO
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch official IPO search page over HTTP/2
+        run: |
+          curl -sS --http2 --compressed --max-time 60 \
+            -c cookies.txt -b cookies.txt \
+            -H 'User-Agent: mcp-tk-probe/0.1 (public compatibility test)' \
+            -H 'Accept: text/html,application/xhtml+xml' \
+            -H 'Accept-Language: pl,en;q=0.8' \
+            -o landing.html 'https://ipo.trybunal.gov.pl/ipo/'
+          curl -sS --http2 --compressed --max-time 60 \
+            -c cookies.txt -b cookies.txt \
+            -H 'User-Agent: mcp-tk-probe/0.1 (public compatibility test)' \
+            -H 'Accept: text/html,application/xhtml+xml' \
+            -H 'Accept-Language: pl,en;q=0.8' \
+            -o search.html 'https://ipo.trybunal.gov.pl/ipo/Szukaj?cid=1'
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("search.html").read_text(encoding="utf-8", errors="replace")
+          print("bytes", len(text))
+          print("forms", re.findall(r'<form[^>]+>', text, re.I)[:20])
+          for tag in re.findall(r'<(?:input|select|textarea|button)[^>]*>', text, re.I):
+              low = tag.lower()
+              if any(x in low for x in ("fra", "sygn", "szuk", "viewstate", "javax.faces", "form")):
+                  print(tag[:1000])
+          for needle in ("sygnaturaComplete", "SzukajDrukuj", "javax.faces.ViewState"):
+              print("\nNEEDLE", needle)
+              for m in list(re.finditer(needle, text, re.I))[:20]:
+                  print(text[max(0,m.start()-500):m.end()+700].replace("\n"," ")[:1400])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipo-search-html
+          path: |
+            landing.html
+            search.html
+          retention-days: 1
