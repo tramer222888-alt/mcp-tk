@@ -26,7 +26,7 @@ jobs:
       - run: npm test
 
   live-smoke:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[live-smoke]')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
