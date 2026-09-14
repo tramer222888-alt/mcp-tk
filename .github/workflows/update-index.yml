@@ -1,0 +1,44 @@
+name: Update official IPO index
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "src/core.ts"
+      - "src/client.ts"
+      - "scripts/build-index.mjs"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-ipo-index
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: node scripts/build-index.mjs
+      - name: Commit changed index
+        run: |
+          if git diff --quiet -- data/ipo-index.json; then
+            echo "Indeks bez zmian."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ipo-index.json
+          git commit -m "data: refresh official IPO index"
+          git push

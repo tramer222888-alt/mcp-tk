@@ -1,0 +1,51 @@
+{
+  "name": "mcp-tk",
+  "version": "1.0.0",
+  "description": "Serwer MCP dla oficjalnego orzecznictwa Trybunału Konstytucyjnego (OTK ZU i IPO)",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-tk": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "data",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && npm run test:parse",
+    "test:parse": "node test/parse.mjs",
+    "smoke": "npm run build && node test/smoke.mjs",
+    "index": "npm run build && node scripts/build-index.mjs",
+    "prepare": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tramer222888-alt/mcp-tk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tramer222888-alt/mcp-tk/issues"
+  },
+  "homepage": "https://github.com/tramer222888-alt/mcp-tk#readme",
+  "keywords": [
+    "mcp",
+    "trybunal-konstytucyjny",
+    "otk-zu",
+    "ipo",
+    "orzecznictwo",
+    "polskie-prawo"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.4.5"
+  }
+}
