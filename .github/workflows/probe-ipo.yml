@@ -1,4 +1,4 @@
-name: Probe official OTK ZU search
+name: Probe official OTK ZU POST
 
 on:
   push:
@@ -10,80 +10,90 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
-      - name: Reproduce OTK ZU search and inspect detail
+      - name: Inspect detail and test browser-equivalent POST
         shell: bash
         run: |
-          set -euo pipefail
-          UA='Mozilla/5.0 (compatible; mcp-tk/1.0; public compatibility test)'
+          set -u
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36'
           BASE='https://otkzu.trybunal.gov.pl'
 
-          search_one() {
-            local prefix="$1" field="$2" value="$3"
+          curl -fsS --http2 --compressed --max-time 45 -L             -H "User-Agent: $UA" -o detail.html "$BASE/2026/A/96"
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          d=Path("detail.html").read_text("utf-8",errors="replace")
+          print("DETAIL bytes",len(d),"title",re.findall(r'<title[^>]*>(.*?)</title>',d,re.I|re.S)[:2])
+          print("links",re.findall(r'href="([^"]+)"',d,re.I)[:120])
+          for marker in ("ipo.trybunal","dokument=","Sygnatura","K 21/24","Miejsce publikacji","48945"):
+              p=d.lower().find(marker.lower())
+              print("DETAIL AROUND",marker,d[max(0,p-800):p+2200].replace("\n"," ") if p>=0 else "MISSING")
+          PY
+
+          make_body() {
+            local prefix="$1" field="$2" value="$3" ajax="$4"
             curl -fsS --http2 --compressed --max-time 45 -L               -c "$prefix.cookies" -b "$prefix.cookies"               -H "User-Agent: $UA" -o "$prefix.page.html" "$BASE/Wyszukiwanie"
-            python3 - "$prefix" "$field" "$value" <<'PY'
+            python3 - "$prefix" "$field" "$value" "$ajax" <<'PY'
           import html,re,sys,urllib.parse
           from pathlib import Path
-          prefix,field,value=sys.argv[1:]
+          prefix,field,value,ajax=sys.argv[1:]
           s=Path(prefix+".page.html").read_text("utf-8",errors="replace")
-          form=re.search(r'<form[^>]+id="wyszukiwanie"[^>]*>(.*?)</form>',s,re.I|re.S)
-          if not form: raise SystemExit("form missing")
-          f=form.group(1)
-          pairs={}
+          f=re.search(r'<form[^>]+id="wyszukiwanie"[^>]*>(.*?)</form>',s,re.I|re.S).group(1)
+          d={}
           for tag in re.findall(r'<input\b[^>]*>',f,re.I):
               nm=re.search(r'\bname="([^"]+)"',tag,re.I)
               if not nm: continue
               typ=(re.search(r'\btype="([^"]+)"',tag,re.I) or [None,"text"])[1].lower()
               if typ in ("submit","button","image","file","reset"): continue
-              if typ in ("checkbox","radio") and not re.search(r'\bchecked(?:=|\s|>)',tag,re.I): continue
               val=re.search(r'\bvalue="([^"]*)"',tag,re.I)
-              pairs[html.unescape(nm.group(1))]=html.unescape(val.group(1)) if val else ""
-          for tag,inner in re.findall(r'(<select\b[^>]*>)(.*?)</select>',f,re.I|re.S):
-              nm=re.search(r'\bname="([^"]+)"',tag,re.I)
-              if not nm: continue
-              opts=re.findall(r'<option\b([^>]*)>(.*?)</option>',inner,re.I|re.S)
-              chosen=next((x for x in opts if re.search(r'\bselected',x[0],re.I)),opts[0] if opts else ("",""))
-              vm=re.search(r'\bvalue="([^"]*)"',chosen[0],re.I)
-              pairs[html.unescape(nm.group(1))]=html.unescape(vm.group(1)) if vm else html.unescape(re.sub("<[^>]+>","",chosen[1]))
-          source="wyszukiwanie:szukaj"
-          pairs.update({
-              field:value,
-              "javax.faces.partial.ajax":"true",
-              "javax.faces.source":source,
-              "javax.faces.partial.execute":"wyszukiwanie",
-              "javax.faces.partial.render":"wyszukiwanie:dataTable",
-              source:source,
-              "wyszukiwanie":"wyszukiwanie",
-              "cid":"1",
-          })
-          Path(prefix+".body").write_text(urllib.parse.urlencode(pairs),encoding="utf-8")
-          print(prefix,"params",sorted(pairs))
-          p=s.find('PrimeFaces.cw("DataTable"')
-          print("DATATABLE CONFIG",s[p:p+3000].replace("\n"," ") if p>=0 else "MISSING")
+              d[html.unescape(nm.group(1))]=html.unescape(val.group(1)) if val else ""
+          d[field]=value
+          d["wyszukiwanie"]="wyszukiwanie"
+          d["wyszukiwanie:szukaj"]="wyszukiwanie:szukaj"
+          d["cid"]="1"
+          if ajax=="yes":
+              d.update({
+                "javax.faces.partial.ajax":"true",
+                "javax.faces.source":"wyszukiwanie:szukaj",
+                "javax.faces.partial.execute":"wyszukiwanie",
+                "javax.faces.partial.render":"wyszukiwanie:dataTable",
+              })
+          Path(prefix+".body").write_text(urllib.parse.urlencode(d),encoding="utf-8")
+          print(prefix,"viewstate",d.get("javax.faces.ViewState"),"field",field,value,"bytes",Path(prefix+".body").stat().st_size)
           PY
-            curl -sS --http2 --compressed --max-time 90               -c "$prefix.cookies" -b "$prefix.cookies"               -H "User-Agent: $UA" -H 'Accept: application/xml, text/xml, */*; q=0.01'               -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8'               -H 'Faces-Request: partial/ajax' -H 'X-Requested-With: XMLHttpRequest'               -H "$BASE/Wyszukiwanie?cid=1"               --data-binary @"$prefix.body"               -w '%{http_code} %{time_total}\n'               -o "$prefix.ajax.xml" "$BASE/Wyszukiwanie?cid=1"
           }
 
-          search_one signature 'wyszukiwanie:sygnaturaComplete_input' 'K 23/11'
-          search_one subject 'wyszukiwanie:dotyczy_input' 'szczepienia'
+          browser_headers=(
+            -H "User-Agent: $UA"
+            -H 'Accept-Language: pl-PL,pl;q=0.9,en-US;q=0.7,en;q=0.6'
+            -H "Origin: $BASE"
+            -H "Referer: $BASE/Wyszukiwanie"
+            -H 'Sec-Fetch-Dest: empty'
+            -H 'Sec-Fetch-Mode: cors'
+            -H 'Sec-Fetch-Site: same-origin'
+            -H 'X-Requested-With: XMLHttpRequest'
+            -H 'Faces-Request: partial/ajax'
+            -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8'
+            -H 'Accept: application/xml, text/xml, */*; q=0.01'
+          )
 
-          curl -fsS --http2 --compressed --max-time 45 -L             -H "User-Agent: $UA" -o detail.html "$BASE/2026/A/96"
+          make_body ajaxdate 'wyszukiwanie:dataOd_input' '2026-08-12' yes
+          curl -sS --http2 --compressed --max-time 75             -c ajaxdate.cookies -b ajaxdate.cookies "${browser_headers[@]}"             --data-binary @ajaxdate.body -w '%{http_code} %{time_total}\n'             -o ajaxdate.out "$BASE/Wyszukiwanie?cid=1" || true
+
+          make_body fullsig 'wyszukiwanie:sygnaturaComplete_input' 'K 21/24' no
+          curl -sS --http2 --compressed --max-time 75 -L             -c fullsig.cookies -b fullsig.cookies             -H "User-Agent: $UA" -H "Origin: $BASE"             -H "Referer: $BASE/Wyszukiwanie"             -H 'Content-Type: application/x-www-form-urlencoded'             -H 'Accept: text/html,application/xhtml+xml'             --data-binary @fullsig.body -w '%{http_code} %{time_total}\n'             -o fullsig.out "$BASE/Wyszukiwanie?cid=1" || true
 
           python3 - <<'PY'
           import html,re
           from pathlib import Path
-          for prefix in ("signature","subject"):
-              s=Path(prefix+".ajax.xml").read_text("utf-8",errors="replace")
-              print("\nRESULT",prefix,"bytes",len(s),"head",s[:500].replace("\n"," "))
-              print("header",re.findall(r'Orzecznictwo Trybunału Konstytucyjnego Zbiór Urzędowy \((\d+)\)',s))
+          for name in ("ajaxdate.out","fullsig.out"):
+              p=Path(name)
+              if not p.exists():
+                  print("MISSING",name); continue
+              s=p.read_text("utf-8",errors="replace")
+              print("RESULT",name,"bytes",len(s),"head",s[:600].replace("\n"," "))
+              print("count",re.findall(r'Zbiór Urzędowy \((\d+)\)',s))
               print("paths",re.findall(r'href="(/\d{4}/[AB]/\d+)"',s)[:30])
               print("signatures",[html.unescape(x).strip() for x in re.findall(r'<span class="sygnatura">([^<]+)',s,re.I)[:30]])
-              print("subjects",[html.unescape(re.sub("<[^>]+>","",x)).strip() for x in re.findall(r'font-style:\s*italic[^>]*>(.*?)</span>',s,re.I|re.S)[:10]])
-          d=Path("detail.html").read_text("utf-8",errors="replace")
-          print("\nDETAIL bytes",len(d),"title",re.findall(r'<title[^>]*>(.*?)</title>',d,re.I|re.S)[:2])
-          print("links",re.findall(r'href="([^"]+)"',d,re.I)[:100])
-          for marker in ("ipo","dokument","Sygnatura","K 21/24","Miejsce publikacji"):
-              p=d.lower().find(marker.lower())
-              print("DETAIL AROUND",marker,d[max(0,p-600):p+1800].replace("\n"," ") if p>=0 else "MISSING")
           PY
