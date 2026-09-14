@@ -12,39 +12,64 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fetch official IPO search page over HTTP/2
+      - name: Reproduce official IPO searches over HTTP/2
         run: |
-          curl -sS --http2 --compressed --max-time 60 \
-            -c cookies.txt -b cookies.txt \
-            -H 'User-Agent: mcp-tk-probe/0.1 (public compatibility test)' \
-            -H 'Accept: text/html,application/xhtml+xml' \
-            -H 'Accept-Language: pl,en;q=0.8' \
-            -o landing.html 'https://ipo.trybunal.gov.pl/ipo/'
-          curl -sS --http2 --compressed --max-time 60 \
-            -c cookies.txt -b cookies.txt \
-            -H 'User-Agent: mcp-tk-probe/0.1 (public compatibility test)' \
-            -H 'Accept: text/html,application/xhtml+xml' \
-            -H 'Accept-Language: pl,en;q=0.8' \
-            -o search.html 'https://ipo.trybunal.gov.pl/ipo/Szukaj?cid=1'
+          set -euo pipefail
+          BASE='https://ipo.trybunal.gov.pl/ipo'
+          UA='mcp-tk-probe/0.2 (public compatibility test)'
+          fetch_session() {
+            local prefix="$1"
+            curl -sS --http2 --compressed --max-time 60               -c "$prefix.cookies" -b "$prefix.cookies"               -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'               -H 'Accept-Language: pl,en;q=0.8' -o "$prefix.landing.html" "$BASE/"
+            curl -sS --http2 --compressed --max-time 60               -c "$prefix.cookies" -b "$prefix.cookies"               -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'               -H 'Accept-Language: pl,en;q=0.8' -o "$prefix.search.html" "$BASE/Szukaj?cid=1"
+          }
+          fetch_session query
           python3 - <<'PY'
-          import re
+          import html, re
           from pathlib import Path
-          text = Path("search.html").read_text(encoding="utf-8", errors="replace")
-          print("bytes", len(text))
-          print("forms", re.findall(r'<form[^>]+>', text, re.I)[:20])
-          for tag in re.findall(r'<(?:input|select|textarea|button)[^>]*>', text, re.I):
-              low = tag.lower()
-              if any(x in low for x in ("fra", "sygn", "szuk", "viewstate", "javax.faces", "form")):
-                  print(tag[:1000])
-          for needle in ("sygnaturaComplete", "SzukajDrukuj", "javax.faces.ViewState"):
-              print("\nNEEDLE", needle)
-              for m in list(re.finditer(needle, text, re.I))[:20]:
-                  print(text[max(0,m.start()-500):m.end()+700].replace("\n"," ")[:1400])
+          text=Path("query.search.html").read_text(encoding="utf-8",errors="replace")
+          for ident in ("wyszukiwanie:tabView:gdzieSzukaj_1_input","wyszukiwanie:tabView:miejscePublikacjiSelectOneMenu_input"):
+              m=re.search(r'<select[^>]+id="'+re.escape(ident)+r'"[^>]*>(.*?)</select>',text,re.I|re.S)
+              print("SELECT",ident,html.unescape(m.group(0))[:4000] if m else "MISSING")
+          m=re.search(r'name="javax\.faces\.ViewState"[^>]+value="([^"]+)"',text,re.I)
+          if not m: raise SystemExit("no ViewState")
+          Path("query.state").write_text(html.unescape(m.group(1)),encoding="utf-8")
+          PY
+          STATE="$(cat query.state)"
+          curl -sS --http2 --compressed --max-time 60             -c query.cookies -b query.cookies             -H "User-Agent: $UA" -H 'Accept: application/xml, text/xml, */*; q=0.01'             -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8'             -H 'Faces-Request: partial/ajax'             -H 'X-Requested-With: XMLHttpRequest'             -H "Referer: $BASE/Szukaj?cid=1"             --data-urlencode 'javax.faces.partial.ajax=true'             --data-urlencode 'javax.faces.source=wyszukiwanie:tabView:szukaj_button_tab1'             --data-urlencode 'javax.faces.partial.execute=wyszukiwanie'             --data-urlencode 'javax.faces.partial.render=wyszukiwanie filtr'             --data-urlencode 'wyszukiwanie:tabView:szukaj_button_tab1=wyszukiwanie:tabView:szukaj_button_tab1'             --data-urlencode 'wyszukiwanie=wyszukiwanie'             --data-urlencode 'wyszukiwanie:tabView:szukajFrazaIT_1_input=prawo do sądu'             --data-urlencode 'wyszukiwanie:tabView:odmianaSlow_1_input=on'             --data-urlencode 'wyszukiwanie:tabView_activeIndex=0'             --data-urlencode "javax.faces.ViewState=$STATE"             -o query.ajax.xml "$BASE/Szukaj?cid=1"
+          curl -sS --http2 --compressed --max-time 60             -c query.cookies -b query.cookies             -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'             -o query.print.html "$BASE/SzukajDrukuj?cid=1&page=0"
+
+          fetch_session signature
+          python3 - <<'PY'
+          import html,re
+          from pathlib import Path
+          text=Path("signature.search.html").read_text(encoding="utf-8",errors="replace")
+          m=re.search(r'name="javax\.faces\.ViewState"[^>]+value="([^"]+)"',text,re.I)
+          if not m: raise SystemExit("no ViewState")
+          Path("signature.state").write_text(html.unescape(m.group(1)),encoding="utf-8")
+          PY
+          STATE="$(cat signature.state)"
+          curl -sS --http2 --compressed --max-time 60             -c signature.cookies -b signature.cookies             -H "User-Agent: $UA" -H 'Accept: application/xml, text/xml, */*; q=0.01'             -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8'             -H 'Faces-Request: partial/ajax' -H 'X-Requested-With: XMLHttpRequest'             -H "Referer: $BASE/Szukaj?cid=1"             --data-urlencode 'javax.faces.partial.ajax=true'             --data-urlencode 'javax.faces.source=wyszukiwanie:tabView:szukaj_button_tab2'             --data-urlencode 'javax.faces.partial.execute=wyszukiwanie'             --data-urlencode 'javax.faces.partial.render=wyszukiwanie filtr'             --data-urlencode 'wyszukiwanie:tabView:szukaj_button_tab2=wyszukiwanie:tabView:szukaj_button_tab2'             --data-urlencode 'wyszukiwanie=wyszukiwanie'             --data-urlencode 'wyszukiwanie:tabView:sygnaturaComplete_input=K 23/11'             --data-urlencode 'wyszukiwanie:tabView_activeIndex=1'             --data-urlencode "javax.faces.ViewState=$STATE"             -o signature.ajax.xml "$BASE/Szukaj?cid=1"
+          curl -sS --http2 --compressed --max-time 60             -c signature.cookies -b signature.cookies             -H "User-Agent: $UA" -H 'Accept: text/html,application/xhtml+xml'             -o signature.print.html "$BASE/SzukajDrukuj?cid=1&page=0"
+
+          python3 - <<'PY'
+          import html,re
+          from pathlib import Path
+          for prefix in ("query","signature"):
+              ajax=Path(prefix+".ajax.xml").read_text(encoding="utf-8",errors="replace")
+              page=Path(prefix+".print.html").read_text(encoding="utf-8",errors="replace")
+              rows=re.findall(r'<span class="sygnatura">([^<]+)</span>',page,re.I)
+              pager=re.search(r'Strona wyników:\s*(\d+)\s*z\s*(\d+)',page,re.I)
+              print("\nRESULT",prefix,"ajax-bytes",len(ajax),"page-bytes",len(page),
+                    "rows",len(rows),"pager",pager.groups() if pager else None)
+              print("signatures",[html.unescape(re.sub(r'<[^>]+>',' ',x)).strip() for x in rows[:25]])
+              print("ajax",ajax[:1200].replace("\n"," "))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: ipo-search-html
+          name: ipo-search-probe
           path: |
-            landing.html
-            search.html
+            query.ajax.xml
+            query.print.html
+            signature.ajax.xml
+            signature.print.html
           retention-days: 1
