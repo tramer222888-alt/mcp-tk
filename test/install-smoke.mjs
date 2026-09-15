@@ -8,12 +8,20 @@ import { join } from "node:path";
 const spec =
     process.env.MCP_TK_SPEC ??
     "github:tramer222888-alt/mcp-tk";
+const configuredCommand = process.env.MCP_TK_COMMAND;
+const configuredArgs = process.env.MCP_TK_ARGS
+    ? JSON.parse(process.env.MCP_TK_ARGS)
+    : [];
 
 const cwd = await mkdtemp(join(tmpdir(), "mcp-tk-npx-"));
 const isWindows = process.platform === "win32";
 const transport = new StdioClientTransport({
-    command: isWindows ? "cmd.exe" : "npx",
-    args: isWindows ? ["/d", "/s", "/c", `npx -y ${spec}`] : ["-y", spec],
+    command: configuredCommand ?? (isWindows ? "cmd.exe" : "npx"),
+    args: configuredCommand
+        ? configuredArgs
+        : isWindows
+          ? ["/d", "/s", "/c", `npx -y ${spec}`]
+          : ["-y", spec],
     cwd,
     stderr: "pipe",
 });
@@ -24,9 +32,13 @@ const client = new Client(
     { capabilities: {} },
 );
 const startedAt = Date.now();
-const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("npx startup timeout after 180 seconds")), 180000),
-);
+let timeoutId;
+const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+        () => reject(new Error("npx startup timeout after 180 seconds")),
+        180000,
+    );
+});
 
 try {
     await Promise.race([client.connect(transport), timeout]);
@@ -38,9 +50,10 @@ try {
         );
     }
     console.log(
-        `OK npx install smoke — 4 tools, cold startup ${startupMs} ms.`,
+        `OK install smoke — 4 tools, startup ${startupMs} ms.`,
     );
 } finally {
+    clearTimeout(timeoutId);
     await client.close().catch(() => {});
     await rm(cwd, { recursive: true, force: true });
 }
