@@ -276,7 +276,7 @@ export class IpoClient {
             this.searchAction,
             "POST",
             new URLSearchParams([...controls.entries()]).toString(),
-            120_000,
+            15_000,
         );
         validatePartialResponse(response);
     }
@@ -403,6 +403,7 @@ export class IpoClient {
     async getJudgment(
         documentId: string,
         caseId?: string,
+        timeoutMs = 60_000,
     ): Promise<ParsedJudgment> {
         await this.openSession();
         const params = new URLSearchParams({
@@ -410,7 +411,12 @@ export class IpoClient {
             dokument: documentId,
         });
         if (caseId) params.set("sprawa", caseId);
-        const html = await this.request("/ipo/Sprawa?" + params.toString());
+        const html = await this.request(
+            "/ipo/Sprawa?" + params.toString(),
+            "GET",
+            undefined,
+            timeoutMs,
+        );
         return parseJudgmentPage(html, documentId, caseId);
     }
 }

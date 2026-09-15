@@ -31,6 +31,6 @@ export declare class IpoClient {
     searchBySignature(signature: string, pageNumber: number, pageSize: number): Promise<SearchWindow>;
     listRecent(pageNumber: number, pageSize: number): Promise<SearchWindow>;
     crawlAll(onProgress?: (page: number, totalPages: number) => void): Promise<SearchResult[]>;
-    getJudgment(documentId: string, caseId?: string): Promise<ParsedJudgment>;
+    getJudgment(documentId: string, caseId?: string, timeoutMs?: number): Promise<ParsedJudgment>;
 }
 //# sourceMappingURL=client.d.ts.map

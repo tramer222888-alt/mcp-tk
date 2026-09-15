@@ -21,10 +21,9 @@ import {
 } from "../dist/otkzu.js";
 import {
     looksLikeAbbreviation,
-    mergeSearchResults,
     resolveSearchMode,
-    shouldUseFullTextFallback,
 } from "../dist/index.js";
+import { searchFullTextIndex, tokenize } from "../dist/fulltext-index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFile(resolve(here, "fixtures", name), "utf8");
@@ -143,14 +142,12 @@ check(
 check(resolveSearchMode(undefined, undefined) === "auto", "domyślny tryb auto");
 check(resolveSearchMode(undefined, true) === "full_text", "stary parametr true");
 check(resolveSearchMode(undefined, false) === "metadata", "stary parametr false");
+check(resolveSearchMode("live", undefined) === "live", "jawny tryb live");
 check(looksLikeAbbreviation("BGK"), "rozpoznawanie skrótu BGK");
 check(
-    shouldUseFullTextFallback("BGK", 2, 10),
-    "mało metadanych uruchamia pełny tekst",
-);
-check(
-    !shouldUseFullTextFallback("prawo do sądu", 50, 10),
-    "wystarczające metadane pozostają szybkie",
+    tokenize("Bank Gospodarstwa Krajowego — BGK").join(",") ===
+        "bank,gospodarstwa,krajowego,bgk",
+    "tokenizacja pełnego tekstu",
 );
 
 const fakeResult = (documentId, signature) => ({
@@ -162,14 +159,62 @@ const fakeResult = (documentId, signature) => ({
     subject: "test",
     url: "https://ipo.trybunal.gov.pl/ipo/Sprawa?dokument=" + documentId,
 });
-const merged = mergeSearchResults(
-    [fakeResult("1", "K 1/26"), fakeResult("2", "K 2/26")],
-    [fakeResult("2", "K 2/26"), fakeResult("3", "K 3/26")],
-    10,
-);
+const metadata = {
+    schema_version: 1,
+    generated_at: "2026-09-15T00:00:00Z",
+    source: "https://ipo.trybunal.gov.pl/ipo/",
+    official: true,
+    record_count: 3,
+    records: [
+        fakeResult("1", "K 1/26"),
+        fakeResult("2", "K 2/26"),
+        fakeResult("3", "K 3/26"),
+    ].map((item) => ({
+        document_id: item.documentId,
+        case_id: null,
+        signature: item.signature,
+        kind: item.kind,
+        date: item.date,
+        subject: item.subject,
+        url: item.url,
+    })),
+};
+const fullText = {
+    schema_version: 1,
+    generated_at: "2026-09-15T00:00:00Z",
+    source: "https://ipo.trybunal.gov.pl/ipo/",
+    official: true,
+    document_count: 3,
+    failed_document_count: 0,
+    document_ids: ["1", "2", "3"],
+    // Delta 0 oznacza dokument 0; [1, 1] oznacza dokumenty 1 i 2.
+    terms: {
+        bgk: [0, 1, 1],
+        bank: [0, 1, 1],
+        bankowy: [0],
+        bankowego: [1],
+    },
+};
+const fullTextResult = searchFullTextIndex(fullText, metadata, {
+    query: "BGK",
+    inflection: false,
+    pageNumber: 1,
+    pageSize: 10,
+});
 check(
-    merged.map((item) => item.documentId).join(",") === "1,2,3",
-    "łączenie wyników usuwa duplikaty i zachowuje priorytet pełnego tekstu",
+    fullTextResult.results.map((item) => item.documentId).join(",") ===
+        "3,2,1",
+    "pełnotekstowy indeks zwraca wszystkie dokumenty bez sieci",
+);
+const inflected = searchFullTextIndex(fullText, metadata, {
+    query: "bankowy",
+    inflection: true,
+    pageNumber: 1,
+    pageSize: 10,
+});
+check(
+    inflected.results.map((item) => item.documentId).join(",") === "2,1",
+    "proste dopasowanie odmiany słowa",
 );
 
 console.log("OK test:parse — " + checks + " asercji.");

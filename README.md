@@ -60,34 +60,29 @@ kompiluje TypeScriptu podczas startu.
 
 | Tool | Działanie |
 |---|---|
-| `search(query, searchMode?, searchInContent?, where?, inflection?, dateFrom?, dateTo?, kind?, pageSize?, pageNumber?)` | Wyszukiwanie tematyczne. Domyślny `searchMode=auto` zaczyna od metadanych i przy małej liczbie wyników lub skrócie sam uruchamia pełny tekst IPO. |
+| `search(query, searchMode?, searchInContent?, where?, inflection?, dateFrom?, dateTo?, kind?, pageSize?, pageNumber?)` | Wyszukiwanie tematyczne. Domyślny `searchMode=auto` przeszukuje lokalny indeks pełnej treści oficjalnych dokumentów IPO, bez czekania na formularz portalu. |
 | `search_by_signature(signature, pageSize?, pageNumber?)` | Dokładne wyszukiwanie po sygnaturze, np. `K 23/11`. |
 | `list_recent(pageSize?, pageNumber?)` | Najnowsze orzeczenia bezpośrednio z żywej listy IPO. |
 | `get_judgment(id, caseId?, section?, offset?, maxChars?)` | Pełny tekst i metadane. `id` może być ID IPO (`25657`) albo pozycją OTK ZU (`2026/A/96`). |
 
 Każda odpowiedź zawiera `structuredContent.citations`. `get_judgment` umieszcza pobrany fragment również w `structuredContent.judgment.content_chunk`, ponieważ część klientów MCP pokazuje modelowi tylko dane strukturalne.
 
-## Trzy tryby wyszukiwania
+## Cztery tryby wyszukiwania
 
-Domyślny `searchMode=auto` przeszukuje najpierw indeks zbudowany wyłącznie z oficjalnej listy IPO:
+Domyślny `searchMode=auto` przeszukuje lokalnie pełną treść orzeczeń pobraną z oficjalnego IPO. Dzięki temu skróty i nazwy występujące dopiero w uzasadnieniu — np. `BGK` — nie znikają tylko dlatego, że nie ma ich w polu „Dotyczy”. Wyszukiwanie nie czeka na wolny formularz JSF portalu.
 
-- sygnaturę,
-- rodzaj orzeczenia,
-- datę,
-- pole „Dotyczy”.
+Tryby:
 
-Jeżeli indeks zwróci mniej niż 20 trafień albo zapytanie wygląda jak skrót (np. `BGK`), tryb `auto` automatycznie uruchamia również pełnotekstowy formularz IPO. Wyniki pełnotekstowe i metadane są łączone po ID dokumentu, a duplikaty usuwane. Dla skrótów odmiana słów jest automatycznie wyłączana. Jeśli żywe IPO nie odpowie, serwer zwraca szybkie metadane z jawnym ostrzeżeniem, zamiast udawać kompletny wynik.
-
-Pozostałe tryby:
-
-- `searchMode=metadata` — wyłącznie szybki indeks metadanych;
-- `searchMode=full_text` — zawsze pełna treść IPO; używaj do badań wyczerpujących i kontroli kompletności.
+- `searchMode=auto` — zalecany; szybki lokalny indeks pełnej treści, z prostym uwzględnianiem odmiany słów;
+- `searchMode=full_text` — ten sam pełnotekstowy indeks, jawnie wymagany;
+- `searchMode=metadata` — tylko sygnatura, rodzaj, data i pole „Dotyczy”; najszybszy, ale o słabej kompletności;
+- `searchMode=live` — żywy formularz JSF IPO; pozwala ograniczyć sekcję przez `where`, ale jest wolny i awaryjny.
 
 Stary parametr `searchInContent` pozostaje obsługiwany: `true` odpowiada `full_text`, a `false` — `metadata`. Nowe wywołania powinny używać `searchMode`.
 
-Indeks jest automatycznie odświeżany przez GitHub Actions co tydzień. Każda odpowiedź podaje `index_generated_at`, więc model nie musi zgadywać świeżości danych. Gdy pliku indeksu jeszcze nie ma, serwer potrafi zbudować go na żywo z oficjalnych stron; pierwsze takie wywołanie trwa dłużej.
+Indeksy są automatycznie odświeżane przez GitHub Actions co tydzień. Każda odpowiedź podaje `index_generated_at`. Jeśli podczas pierwszej publikacji brakuje jeszcze indeksu pełnej treści, `auto` jawnie zwraca tymczasowe metadane; nie uruchamia w tle wielominutowego formularza.
 
-`searchMode=full_text` uruchamia pełnotekstowy formularz JSF oficjalnego IPO. Parametr `where` pozwala ograniczyć wyszukiwanie do:
+`searchMode=live` uruchamia pełnotekstowy formularz JSF oficjalnego IPO. Parametr `where` pozwala ograniczyć wyszukiwanie do:
 
 - `wszedzie`
 - `komparycja`
@@ -104,7 +99,7 @@ Formularz TK bywa przeciążony i może odpowiadać znacznie wolniej niż pobier
 Przykład kwerendy nastawionej na kompletność:
 
 ```text
-search(query="BGK", searchMode="full_text", where="wszedzie", inflection=false, pageSize=50)
+search(query="BGK", searchMode="auto", inflection=false, pageSize=50)
 ```
 
 ## Długie orzeczenia: sekcje i offset
@@ -198,6 +193,8 @@ npm run build
 npm run test:parse   # testy offline parserów, sekcji, offsetów i drift guardów
 npm run smoke        # test LIVE: lista + pełny tekst z oficjalnego IPO
 npm run index        # przebudowa data/ipo-index.json z oficjalnej listy
+npm run index:fulltext # przebudowa skompresowanego indeksu pełnej treści
+npm run verify:index  # kontrola regresji: co najmniej 7 dokumentów dla BGK
 node dist/index.js   # serwer MCP na stdio
 ```
 

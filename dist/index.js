@@ -3,8 +3,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveSearchMode = resolveSearchMode;
 exports.looksLikeAbbreviation = looksLikeAbbreviation;
-exports.shouldUseFullTextFallback = shouldUseFullTextFallback;
-exports.mergeSearchResults = mergeSearchResults;
 exports.createServer = createServer;
 exports.runServer = runServer;
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
@@ -13,14 +11,15 @@ const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const core_js_1 = require("./core.js");
 const client_js_1 = require("./client.js");
 const index_data_js_1 = require("./index-data.js");
+const fulltext_index_js_1 = require("./fulltext-index.js");
 const otkzu_js_1 = require("./otkzu.js");
-const AUTO_FULL_TEXT_RESULT_THRESHOLD = 20;
 function resolveSearchMode(searchMode, searchInContent) {
     if (searchMode !== undefined &&
         searchMode !== "auto" &&
         searchMode !== "metadata" &&
-        searchMode !== "full_text") {
-        throw new core_js_1.TkError("invalid_arg", "searchMode musi mieć wartość auto, metadata albo full_text.");
+        searchMode !== "full_text" &&
+        searchMode !== "live") {
+        throw new core_js_1.TkError("invalid_arg", "searchMode musi mieć wartość auto, metadata, full_text albo live.");
     }
     if (searchInContent !== undefined &&
         typeof searchInContent !== "boolean") {
@@ -41,25 +40,6 @@ function looksLikeAbbreviation(query) {
         compact.length <= 12 &&
         /^[A-ZĄĆĘŁŃÓŚŹŻ0-9]+$/.test(compact) &&
         /[A-ZĄĆĘŁŃÓŚŹŻ]{2}/.test(compact));
-}
-function shouldUseFullTextFallback(query, metadataTotal, pageSize) {
-    return (looksLikeAbbreviation(query) ||
-        metadataTotal < Math.max(AUTO_FULL_TEXT_RESULT_THRESHOLD, pageSize));
-}
-function mergeSearchResults(primary, secondary, limit) {
-    const unique = new Map();
-    for (const item of [...primary, ...secondary]) {
-        const key = item.documentId || item.url;
-        if (!unique.has(key))
-            unique.set(key, item);
-    }
-    return [...unique.values()].slice(0, limit);
-}
-function normalized(value) {
-    return (0, core_js_1.removeDiacritics)(value).toLowerCase().replace(/\s+/g, " ").trim();
-}
-function errorMessage(error) {
-    return error instanceof Error ? error.message : String(error);
 }
 function requiredString(args, name) {
     const value = args[name];
@@ -165,7 +145,7 @@ function errorResult(error) {
 const tools = [
     {
         name: "search",
-        description: "Wyszukuje orzeczenia TK. Domyślny searchMode=auto zaczyna od szybkich metadanych i przy małej liczbie trafień lub skrócie automatycznie rozszerza wyszukiwanie na pełną treść IPO. Dla kwerendy wyczerpującej użyj searchMode=full_text.",
+        description: "Wyszukuje orzeczenia TK. Domyślny searchMode=auto korzysta z szybkiego, lokalnego indeksu pełnej treści oficjalnych dokumentów IPO. metadata ogranicza się do sygnatury, rodzaju i pola Dotyczy; live uruchamia wolny formularz IPO.",
         inputSchema: {
             type: "object",
             properties: {
@@ -175,9 +155,9 @@ const tools = [
                 },
                 searchMode: {
                     type: "string",
-                    enum: ["auto", "metadata", "full_text"],
+                    enum: ["auto", "metadata", "full_text", "live"],
                     default: "auto",
-                    description: "auto (zalecane): szybki indeks z automatycznym rozszerzeniem; metadata: tylko szybkie metadane; full_text: zawsze pełna treść IPO.",
+                    description: "auto (zalecane) i full_text: szybki indeks pełnej treści; metadata: tylko metadane; live: żywy formularz IPO, wolny i awaryjny.",
                 },
                 searchInContent: {
                     type: "boolean",
@@ -187,12 +167,12 @@ const tools = [
                     type: "string",
                     enum: Object.keys(core_js_1.SEARCH_AREAS),
                     default: "wszedzie",
-                    description: "Dla searchInContent: wszedzie, komparycja, sentencja, uzasadnienie, historia, przed_rozprawa, na_rozprawie, ocena_prawna lub zdanie_odrebne.",
+                    description: "Tylko dla searchMode=live: wszedzie, komparycja, sentencja, uzasadnienie, historia, przed_rozprawa, na_rozprawie, ocena_prawna lub zdanie_odrebne.",
                 },
                 inflection: {
                     type: "boolean",
                     default: true,
-                    description: "Dla searchInContent: uwzględniaj odmianę słów.",
+                    description: "Uwzględniaj proste odmiany słów. Dla skrótów w trybie auto jest wyłączane automatycznie.",
                 },
                 dateFrom: {
                     type: "string",
@@ -334,9 +314,9 @@ const tools = [
     },
 ];
 function createServer() {
-    const server = new index_js_1.Server({ name: "mcp-tk", version: "1.1.0" }, {
+    const server = new index_js_1.Server({ name: "mcp-tk", version: "1.2.0" }, {
         capabilities: { tools: {} },
-        instructions: "Do zwykłych kwerend tematycznych używaj search z searchMode=auto. Gdy użytkownik prosi o wszystkie możliwe trafienia, badanie wyczerpujące albo kontrolę kompletności, użyj searchMode=full_text. Wynik z samych metadanych nie dowodzi braku innych orzeczeń.",
+        instructions: "Do kwerend tematycznych używaj search z searchMode=auto: przeszukuje szybki lokalny indeks pełnej treści oficjalnych dokumentów IPO. metadata służy tylko do szybkiej kontroli sygnatur i pól Dotyczy. live uruchamiaj wyłącznie wtedy, gdy potrzebne jest wyszukiwanie w konkretnej sekcji przez where; formularz IPO jest wolny i może nie odpowiedzieć. Brak wyniku nigdy nie zastępuje analizy trafności zapytania i wariantów nazwy.",
     });
     server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => ({ tools }));
     server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
@@ -355,7 +335,7 @@ function createServer() {
                     throw new core_js_1.TkError("invalid_arg", "dateFrom nie może być późniejsze niż dateTo.");
                 }
                 const searchMode = resolveSearchMode(args.searchMode, args.searchInContent);
-                if (searchMode === "full_text") {
+                if (searchMode === "live") {
                     const where = (args.where ?? "wszedzie");
                     if (!(where in core_js_1.SEARCH_AREAS)) {
                         throw new core_js_1.TkError("invalid_arg", "Nieznane pole where.");
@@ -405,7 +385,7 @@ function createServer() {
                 const kind = typeof args.kind === "string" && args.kind.trim()
                     ? args.kind.trim()
                     : undefined;
-                const result = (0, index_data_js_1.searchIndex)(index, {
+                const metadataResult = (0, index_data_js_1.searchIndex)(index, {
                     query,
                     dateFrom,
                     dateTo,
@@ -413,50 +393,38 @@ function createServer() {
                     pageNumber,
                     pageSize,
                 });
-                if (searchMode === "auto" &&
-                    shouldUseFullTextFallback(query, result.totalResults, pageSize)) {
-                    const where = (args.where ?? "wszedzie");
-                    if (!(where in core_js_1.SEARCH_AREAS)) {
-                        throw new core_js_1.TkError("invalid_arg", "Nieznane pole where.");
-                    }
-                    const inferredInflection = looksLikeAbbreviation(query)
-                        ? false
-                        : args.inflection !== false;
-                    try {
-                        const live = await client.search({
+                if (searchMode !== "metadata") {
+                    const fullText = await (0, fulltext_index_js_1.loadFullTextIndex)();
+                    if (fullText) {
+                        const inferredInflection = looksLikeAbbreviation(query)
+                            ? false
+                            : args.inflection !== false;
+                        const result = (0, fulltext_index_js_1.searchFullTextIndex)(fullText, index, {
                             query,
-                            where,
                             inflection: inferredInflection,
                             dateFrom,
                             dateTo,
+                            kind,
                             pageNumber,
                             pageSize,
                         });
-                        const fullTextResults = kind
-                            ? live.results.filter((item) => normalized(item.kind).includes(normalized(kind)))
-                            : live.results;
-                        const merged = mergeSearchResults(fullTextResults, result.results, pageSize);
-                        const totalResults = Math.max(live.totalResults ?? 0, result.totalResults, merged.length);
                         return {
                             content: [
                                 {
                                     type: "text",
-                                    text: formatResults("Hybrydowe wyniki TK: „" +
-                                        query +
-                                        "”", merged, pageNumber, pageSize, totalResults, "Tryb auto: indeks metadanych zwrócił " +
-                                        result.totalResults +
-                                        " trafień, więc kwerendę rozszerzono na pełną treść oficjalnego IPO. Wyniki pełnotekstowe mają pierwszeństwo; duplikaty usunięto."),
+                                    text: formatResults("Pełnotekstowe wyniki TK: „" + query + "”", result.results, pageNumber, pageSize, result.totalResults, "Zakres: szybki indeks pełnej treści oficjalnych dokumentów IPO. Indeks: " +
+                                        result.generatedAt +
+                                        "."),
                                 },
                             ],
                             structuredContent: {
-                                citations: merged.map(citationFor),
-                                results: merged.map(resultFields),
-                                search_scope: "official_ipo_hybrid_auto",
+                                citations: result.results.map(citationFor),
+                                results: result.results.map(resultFields),
+                                search_scope: "official_ipo_fulltext_index",
                                 index_generated_at: result.generatedAt,
                                 query: {
                                     text: query,
                                     mode: searchMode,
-                                    where,
                                     inflection: inferredInflection,
                                     date_from: dateFrom ?? null,
                                     date_to: dateTo ?? null,
@@ -465,61 +433,35 @@ function createServer() {
                                 page: {
                                     number: pageNumber,
                                     size: pageSize,
-                                    metadata_total_results: result.totalResults,
-                                    portal_total_pages: live.totalPages,
-                                    portal_total_results: live.totalResults,
-                                    merged_results_on_page: merged.length,
+                                    total_results: result.totalResults,
+                                    total_pages: Math.ceil(result.totalResults / pageSize),
                                 },
                             },
                         };
                     }
-                    catch (error) {
-                        const warning = "Pełnotekstowe IPO nie odpowiedziało: " +
-                            errorMessage(error) +
-                            " Zwracam szybkie metadane; dla ponownej próby użyj searchMode=full_text.";
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: formatResults("Wyniki TK: „" + query + "”", result.results, pageNumber, pageSize, result.totalResults, "Tryb auto — " + warning),
-                                },
-                            ],
-                            structuredContent: {
-                                citations: result.results.map(citationFor),
-                                results: result.results.map(resultFields),
-                                search_scope: "official_ipo_metadata_fallback",
-                                index_generated_at: result.generatedAt,
-                                warning,
-                                query: {
-                                    text: query,
-                                    mode: searchMode,
-                                    date_from: dateFrom ?? null,
-                                    date_to: dateTo ?? null,
-                                    kind: kind ?? null,
-                                },
-                                page: {
-                                    number: pageNumber,
-                                    size: pageSize,
-                                    total_results: result.totalResults,
-                                },
-                            },
-                        };
+                    if (searchMode === "full_text") {
+                        throw new core_js_1.TkError("not_found", "Brak lokalnego indeksu pełnej treści. Poczekaj na workflow Update official IPO index albo uruchom npm run index:fulltext.");
                     }
                 }
+                const warning = searchMode === "auto"
+                    ? " Indeks pełnej treści jest właśnie budowany; tymczasowo wynik obejmuje tylko metadane."
+                    : "";
                 return {
                     content: [
                         {
                             type: "text",
-                            text: formatResults("Wyniki TK: „" + query + "”", result.results, pageNumber, pageSize, result.totalResults, "Zakres: oficjalne metadane IPO (sygnatura, rodzaj, data, „Dotyczy”). Indeks: " +
-                                result.generatedAt +
-                                "."),
+                            text: formatResults("Wyniki TK: „" + query + "”", metadataResult.results, pageNumber, pageSize, metadataResult.totalResults, "Zakres: oficjalne metadane IPO (sygnatura, rodzaj, data, „Dotyczy”). Indeks: " +
+                                metadataResult.generatedAt +
+                                "." +
+                                warning),
                         },
                     ],
                     structuredContent: {
-                        citations: result.results.map(citationFor),
-                        results: result.results.map(resultFields),
+                        citations: metadataResult.results.map(citationFor),
+                        results: metadataResult.results.map(resultFields),
                         search_scope: "official_ipo_metadata_index",
-                        index_generated_at: result.generatedAt,
+                        index_generated_at: metadataResult.generatedAt,
+                        ...(warning ? { warning: warning.trim() } : {}),
                         query: {
                             text: query,
                             mode: searchMode,
@@ -530,8 +472,8 @@ function createServer() {
                         page: {
                             number: pageNumber,
                             size: pageSize,
-                            total_results: result.totalResults,
-                            total_pages: Math.ceil(result.totalResults / pageSize),
+                            total_results: metadataResult.totalResults,
+                            total_pages: Math.ceil(metadataResult.totalResults / pageSize),
                         },
                     },
                 };

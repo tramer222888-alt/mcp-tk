@@ -1,6 +1,6 @@
 {
   "name": "mcp-tk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Serwer MCP dla oficjalnego orzecznictwa Trybunału Konstytucyjnego (OTK ZU i IPO)",
   "main": "dist/index.js",
   "bin": {
@@ -18,6 +18,8 @@
     "test:parse": "node test/parse.mjs",
     "smoke": "npm run build && node test/smoke.mjs",
     "index": "npm run build && node scripts/build-index.mjs",
+    "index:fulltext": "npm run build && node scripts/build-fulltext-index.mjs",
+    "verify:index": "npm run build && node scripts/verify-fulltext-index.mjs",
     "prepublishOnly": "npm run build"
   },
   "repository": {

@@ -226,7 +226,7 @@ class IpoClient {
         if (!controls.has("javax.faces.ViewState")) {
             throw new core_js_1.TkError("api_changed", "Portal IPO nie udostępnił ViewState. Zgłoś: " + core_js_1.ISSUE_URL);
         }
-        const response = await this.request(this.searchAction, "POST", new URLSearchParams([...controls.entries()]).toString(), 120_000);
+        const response = await this.request(this.searchAction, "POST", new URLSearchParams([...controls.entries()]).toString(), 15_000);
         (0, core_js_1.validatePartialResponse)(response);
     }
     printPath(page) {
@@ -300,7 +300,7 @@ class IpoClient {
             unique.set(result.documentId, result);
         return [...unique.values()];
     }
-    async getJudgment(documentId, caseId) {
+    async getJudgment(documentId, caseId, timeoutMs = 60_000) {
         await this.openSession();
         const params = new URLSearchParams({
             cid: (0, core_js_1.cidFromAction)(this.searchAction),
@@ -308,7 +308,7 @@ class IpoClient {
         });
         if (caseId)
             params.set("sprawa", caseId);
-        const html = await this.request("/ipo/Sprawa?" + params.toString());
+        const html = await this.request("/ipo/Sprawa?" + params.toString(), "GET", undefined, timeoutMs);
         return (0, core_js_1.parseJudgmentPage)(html, documentId, caseId);
     }
 }
