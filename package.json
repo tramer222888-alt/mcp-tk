@@ -18,7 +18,7 @@
     "test:parse": "node test/parse.mjs",
     "smoke": "npm run build && node test/smoke.mjs",
     "index": "npm run build && node scripts/build-index.mjs",
-    "prepare": "npm run build"
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",

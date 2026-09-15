@@ -12,13 +12,31 @@ Nie używa SAOS ani komercyjnych baz, nie wymaga konta i nie wymaga klucza API.
 
 `mcp-tk` daje modelowi rzeczywiste orzeczenia TK: sygnaturę, datę, rodzaj, przedmiot, skład, pełny tekst, bezpośredni link i pozycję OTK ZU. Długie dokumenty można pobierać sekcjami i porcjami, zamiast zużywać cały budżet kontekstu naraz.
 
-## Instalacja jednym poleceniem (Claude Code)
+## Instalacja jednym poleceniem
+
+### ChatGPT desktop / Codex
+
+W ustawieniach MCP wybierz transport `STDIO` i wpisz:
+
+- polecenie: `npx`
+- argument 1: `-y`
+- argument 2: `github:tramer222888-alt/mcp-tk`
+
+Albo dodaj serwer z terminala:
+
+```sh
+codex mcp add tk -- npx -y github:tramer222888-alt/mcp-tk
+```
+
+### Claude Code
 
 ```sh
 claude mcp add tk -- npx -y github:tramer222888-alt/mcp-tk
 ```
 
-Wymagane są Node.js 18+ i Git w `PATH`. Pierwsze uruchomienie buduje TypeScript przez skrypt `prepare`.
+Wymagane są Node.js 18+ i Git w `PATH`. Gotowe pliki `dist` są
+wersjonowane w repozytorium, więc serwer nie kompiluje TypeScriptu podczas
+startu.
 
 Na Windows, jeśli `npx` nie uruchamia się bezpośrednio:
 
