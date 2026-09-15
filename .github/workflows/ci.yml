@@ -25,6 +25,20 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
 
+  install-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node test/install-smoke.mjs
+        env:
+          MCP_TK_SPEC: github:tramer222888-alt/mcp-tk#${{ github.sha }}
+
   live-smoke:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[live-smoke]')
     runs-on: ubuntu-latest
