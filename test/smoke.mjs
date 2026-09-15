@@ -82,6 +82,26 @@ try {
         "wynik ma oficjalne citation",
     );
 
+    const bgk = await rpc("tools/call", {
+        name: "search",
+        arguments: {
+            query: "BGK",
+            searchMode: "auto",
+            pageSize: 50,
+            pageNumber: 1,
+        },
+    });
+    check(!bgk.isError, "hybrydowe wyszukiwanie BGK bez błędu");
+    check(
+        bgk.structuredContent?.search_scope ===
+            "official_ipo_hybrid_auto",
+        "BGK automatycznie uruchamia pełny tekst",
+    );
+    check(
+        (bgk.structuredContent?.results?.length ?? 0) > 2,
+        "BGK zwraca więcej niż dwa trafienia metadanych",
+    );
+
     const document = await rpc("tools/call", {
         name: "get_judgment",
         arguments: {

@@ -60,25 +60,34 @@ kompiluje TypeScriptu podczas startu.
 
 | Tool | Działanie |
 |---|---|
-| `search(query, searchInContent?, where?, inflection?, dateFrom?, dateTo?, kind?, pageSize?, pageNumber?)` | Wyszukiwanie tematyczne. Domyślnie szybki indeks oficjalnych metadanych; `searchInContent=true` przełącza na żywy formularz pełnotekstowy IPO. |
+| `search(query, searchMode?, searchInContent?, where?, inflection?, dateFrom?, dateTo?, kind?, pageSize?, pageNumber?)` | Wyszukiwanie tematyczne. Domyślny `searchMode=auto` zaczyna od metadanych i przy małej liczbie wyników lub skrócie sam uruchamia pełny tekst IPO. |
 | `search_by_signature(signature, pageSize?, pageNumber?)` | Dokładne wyszukiwanie po sygnaturze, np. `K 23/11`. |
 | `list_recent(pageSize?, pageNumber?)` | Najnowsze orzeczenia bezpośrednio z żywej listy IPO. |
 | `get_judgment(id, caseId?, section?, offset?, maxChars?)` | Pełny tekst i metadane. `id` może być ID IPO (`25657`) albo pozycją OTK ZU (`2026/A/96`). |
 
 Każda odpowiedź zawiera `structuredContent.citations`. `get_judgment` umieszcza pobrany fragment również w `structuredContent.judgment.content_chunk`, ponieważ część klientów MCP pokazuje modelowi tylko dane strukturalne.
 
-## Dwa tryby wyszukiwania
+## Trzy tryby wyszukiwania
 
-Domyślny `search` przeszukuje indeks zbudowany wyłącznie z oficjalnej listy IPO:
+Domyślny `searchMode=auto` przeszukuje najpierw indeks zbudowany wyłącznie z oficjalnej listy IPO:
 
 - sygnaturę,
 - rodzaj orzeczenia,
 - datę,
 - pole „Dotyczy”.
 
+Jeżeli indeks zwróci mniej niż 20 trafień albo zapytanie wygląda jak skrót (np. `BGK`), tryb `auto` automatycznie uruchamia również pełnotekstowy formularz IPO. Wyniki pełnotekstowe i metadane są łączone po ID dokumentu, a duplikaty usuwane. Dla skrótów odmiana słów jest automatycznie wyłączana. Jeśli żywe IPO nie odpowie, serwer zwraca szybkie metadane z jawnym ostrzeżeniem, zamiast udawać kompletny wynik.
+
+Pozostałe tryby:
+
+- `searchMode=metadata` — wyłącznie szybki indeks metadanych;
+- `searchMode=full_text` — zawsze pełna treść IPO; używaj do badań wyczerpujących i kontroli kompletności.
+
+Stary parametr `searchInContent` pozostaje obsługiwany: `true` odpowiada `full_text`, a `false` — `metadata`. Nowe wywołania powinny używać `searchMode`.
+
 Indeks jest automatycznie odświeżany przez GitHub Actions co tydzień. Każda odpowiedź podaje `index_generated_at`, więc model nie musi zgadywać świeżości danych. Gdy pliku indeksu jeszcze nie ma, serwer potrafi zbudować go na żywo z oficjalnych stron; pierwsze takie wywołanie trwa dłużej.
 
-`searchInContent=true` uruchamia pełnotekstowy formularz JSF oficjalnego IPO. Parametr `where` pozwala ograniczyć wyszukiwanie do:
+`searchMode=full_text` uruchamia pełnotekstowy formularz JSF oficjalnego IPO. Parametr `where` pozwala ograniczyć wyszukiwanie do:
 
 - `wszedzie`
 - `komparycja`
@@ -91,6 +100,12 @@ Indeks jest automatycznie odświeżany przez GitHub Actions co tydzień. Każda 
 - `zdanie_odrebne`
 
 Formularz TK bywa przeciążony i może odpowiadać znacznie wolniej niż pobieranie dokumentów. Błąd `[upstream_error]` oznacza jawną awarię lub timeout źródła, nie „zero wyników”.
+
+Przykład kwerendy nastawionej na kompletność:
+
+```text
+search(query="BGK", searchMode="full_text", where="wszedzie", inflection=false, pageSize=50)
+```
 
 ## Długie orzeczenia: sekcje i offset
 

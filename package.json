@@ -1,6 +1,6 @@
 {
   "name": "mcp-tk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Serwer MCP dla oficjalnego orzecznictwa Trybunału Konstytucyjnego (OTK ZU i IPO)",
   "main": "dist/index.js",
   "bin": {

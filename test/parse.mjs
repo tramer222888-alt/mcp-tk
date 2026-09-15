@@ -19,6 +19,12 @@ import {
     normalizeOtkZuReference,
     parseOtkZuDetail,
 } from "../dist/otkzu.js";
+import {
+    looksLikeAbbreviation,
+    mergeSearchResults,
+    resolveSearchMode,
+    shouldUseFullTextFallback,
+} from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFile(resolve(here, "fixtures", name), "utf8");
@@ -132,6 +138,38 @@ check(
     normalizeOtkZuReference("https://otkzu.trybunal.gov.pl/2026/a/96") ===
         "2026/A/96",
     "normalizacja referencji OTK ZU",
+);
+
+check(resolveSearchMode(undefined, undefined) === "auto", "domyślny tryb auto");
+check(resolveSearchMode(undefined, true) === "full_text", "stary parametr true");
+check(resolveSearchMode(undefined, false) === "metadata", "stary parametr false");
+check(looksLikeAbbreviation("BGK"), "rozpoznawanie skrótu BGK");
+check(
+    shouldUseFullTextFallback("BGK", 2, 10),
+    "mało metadanych uruchamia pełny tekst",
+);
+check(
+    !shouldUseFullTextFallback("prawo do sądu", 50, 10),
+    "wystarczające metadane pozostają szybkie",
+);
+
+const fakeResult = (documentId, signature) => ({
+    documentId,
+    signature,
+    kind: "Wyrok",
+    date: "2026-01-01",
+    dateLabel: "2026-01-01",
+    subject: "test",
+    url: "https://ipo.trybunal.gov.pl/ipo/Sprawa?dokument=" + documentId,
+});
+const merged = mergeSearchResults(
+    [fakeResult("1", "K 1/26"), fakeResult("2", "K 2/26")],
+    [fakeResult("2", "K 2/26"), fakeResult("3", "K 3/26")],
+    10,
+);
+check(
+    merged.map((item) => item.documentId).join(",") === "1,2,3",
+    "łączenie wyników usuwa duplikaty i zachowuje priorytet pełnego tekstu",
 );
 
 console.log("OK test:parse — " + checks + " asercji.");
