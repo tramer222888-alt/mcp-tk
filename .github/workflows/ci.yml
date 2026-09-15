@@ -37,7 +37,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node test/install-smoke.mjs
         env:
-          MCP_TK_SPEC: github:tramer222888-alt/mcp-tk
+          MCP_TK_SPEC: https://github.com/tramer222888-alt/mcp-tk/archive/refs/heads/main.tar.gz
 
   live-smoke:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[live-smoke]')

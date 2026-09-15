@@ -12,37 +12,49 @@ Nie używa SAOS ani komercyjnych baz, nie wymaga konta i nie wymaga klucza API.
 
 `mcp-tk` daje modelowi rzeczywiste orzeczenia TK: sygnaturę, datę, rodzaj, przedmiot, skład, pełny tekst, bezpośredni link i pozycję OTK ZU. Długie dokumenty można pobierać sekcjami i porcjami, zamiast zużywać cały budżet kontekstu naraz.
 
-## Instalacja jednym poleceniem
+## Instalacja
 
-### ChatGPT desktop / Codex
+Wymagany jest Node.js 18+. Serwer nie wymaga konta ani klucza API.
 
-W ustawieniach MCP wybierz transport `STDIO` i wpisz:
+### ChatGPT desktop — zalecany sposób
 
-- polecenie: `npx`
-- argument 1: `-y`
-- argument 2: `github:tramer222888-alt/mcp-tk`
-
-Albo dodaj serwer z terminala:
+Zainstaluj serwer jednorazowo w terminalu:
 
 ```sh
-codex mcp add tk -- npx -y github:tramer222888-alt/mcp-tk
+npm install -g https://github.com/tramer222888-alt/mcp-tk/archive/refs/heads/main.tar.gz
 ```
 
-### Claude Code
+Następnie w ustawieniach MCP wybierz `STDIO`.
+
+Windows:
+
+- polecenie: `cmd.exe`
+- argumenty: `/d`, `/s`, `/c`, `mcp-tk` — każdy jako osobna pozycja
+
+macOS/Linux:
+
+- polecenie: `mcp-tk`
+- bez argumentów
+
+Instalacja przed dodaniem MCP jest celowa: ChatGPT ma krótki limit startu
+procesu, a pobieranie pakietu przez `npx` może go przekroczyć.
+
+### Codex CLI
+
+Po wykonaniu powyższego `npm install -g`:
 
 ```sh
-claude mcp add tk -- npx -y github:tramer222888-alt/mcp-tk
+codex mcp add tk -- mcp-tk
 ```
 
-Wymagane są Node.js 18+ i Git w `PATH`. Gotowe pliki `dist` są
-wersjonowane w repozytorium, więc serwer nie kompiluje TypeScriptu podczas
-startu.
-
-Na Windows, jeśli `npx` nie uruchamia się bezpośrednio:
+Na Windows, jeśli bezpośrednie uruchomienie nie działa:
 
 ```powershell
-claude mcp add tk -- cmd /c "npx -y github:tramer222888-alt/mcp-tk"
+codex mcp add tk -- cmd.exe /d /s /c mcp-tk
 ```
+
+Gotowe pliki `dist` są wersjonowane w repozytorium, więc serwer nie
+kompiluje TypeScriptu podczas startu.
 
 ## Narzędzia
 
