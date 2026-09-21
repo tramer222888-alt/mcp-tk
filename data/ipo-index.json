@@ -1,10 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-15T18:34:24.998Z",
+  "generated_at": "2026-09-21T04:29:03.941Z",
   "source": "https://ipo.trybunal.gov.pl/ipo/SzukajDrukuj?cid=1&page=0",
   "official": true,
-  "record_count": 3366,
+  "record_count": 3367,
   "records": [
+    {
+      "document_id": "25704",
+      "case_id": "27575",
+      "signature": "P 1/24",
+      "kind": "Wyrok",
+      "date": "2026-08-13",
+      "subject": "",
+      "url": "https://ipo.trybunal.gov.pl/ipo/Sprawa?cid=1&dokument=25704&sprawa=27575"
+    },
     {
       "document_id": "25657",
       "case_id": "27924",
